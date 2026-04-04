@@ -1,0 +1,39 @@
+name: sre-incident-agent
+description: OpenEnv benchmark environment for SRE incident triage with heuristic and LLM agents.
+version: 0.1.0
+tags:
+  - openenv
+  - sre
+  - llm-agent
+
+entry_point: env:SREEnv
+observation_type: text-based structured
+action_type: multi-part discrete
+
+tasks:
+  - id: easy
+    name: Easy
+    description: Short horizon triage with minimal misleading telemetry.
+    config:
+      max_steps: 10
+      difficulty: 1
+      seed: 42
+    grader: grader.py
+
+  - id: medium
+    name: Medium
+    description: Medium horizon triage with moderate misleading telemetry.
+    config:
+      max_steps: 20
+      difficulty: 2
+      seed: 42
+    grader: grader.py
+
+  - id: hard
+    name: Hard
+    description: Long horizon triage with heavy misleading telemetry.
+    config:
+      max_steps: 30
+      difficulty: 3
+      seed: 42
+    grader: grader.py
