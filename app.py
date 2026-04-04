@@ -54,3 +54,24 @@ def run_demo() -> Dict[str, object]:
 @app.get("/health")
 def health() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/reset")
+def reset_env() -> Dict[str, object]:
+    """
+    OpenEnv validator ping endpoint.
+    Instantiates a fresh environment, calls reset(), and returns the
+    initial observation to prove the environment works end to end.
+    """
+    env = SREIncidentTriageEnv({"max_steps": 10, "difficulty": 1, "seed": 42})
+    obs, info = env.reset()
+    return {
+        "status": "ok",
+        "observation": {
+            "incident_text": obs.get("incident_text", ""),
+            "step_number": obs.get("step_number", 0),
+            "incidents_resolved": obs.get("incidents_resolved", 0),
+            "current_score": obs.get("current_score", 0.0),
+        },
+        "info": str(info.get("state", {})),
+    }
