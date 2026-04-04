@@ -310,3 +310,17 @@ def generate_incident(seed: int, difficulty: int) -> Dict[str, str]:
         "true_root_cause": template["true_root_cause"],
         "correct_action": template["correct_action"],
     }
+
+
+if __name__ == "__main__":
+    sample = generate_incident(seed=42, difficulty=2)
+    print("Sample incident:")
+    print(sample["incident_text"])
+    print("\nAnswer key:")
+    print(
+        {
+            "true_severity": sample["true_severity"],
+            "true_root_cause": sample["true_root_cause"],
+            "correct_action": sample["correct_action"],
+        }
+    )

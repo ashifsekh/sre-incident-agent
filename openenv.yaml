@@ -6,7 +6,7 @@ tags:
   - sre
   - llm-agent
 
-entry_point: env:SREEnv
+entry_point: env:SREIncidentTriageEnv
 observation_type: text-based structured
 action_type: multi-part discrete
 

@@ -112,3 +112,21 @@ def score_decision(agent_decision: Dict[str, str], true_answer: Dict[str, object
         action_score=round(action, 4),
         total_score=total,
     )
+
+
+if __name__ == "__main__":
+    sample_agent_decision = {
+        "severity": "P2",
+        "root_cause": "network",
+        "action": "page_all_teams",
+    }
+    sample_true_answer = {
+        "severity": "P3",
+        "root_cause": "infra",
+        "action": "escalate",
+        "acceptable_alternatives": ["investigate"],
+    }
+
+    reward = score_decision(sample_agent_decision, sample_true_answer)
+    print("Sample score:")
+    print(reward.model_dump())

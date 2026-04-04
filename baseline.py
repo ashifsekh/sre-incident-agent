@@ -150,23 +150,58 @@ def llm_agent_decision(client: OpenAI | None, incident_text: str) -> Dict[str, s
         LOGGER.warning("OPENAI_API_KEY missing; using default LLM fallback decision.")
         return default_decision
 
-    system_prompt = (
-        "You are an SRE triage assistant. "
-        "Respond ONLY with valid JSON in this exact schema: "
-        '{"severity":"P1|P2|P3","root_cause":"database|deployment|infra|external_dependency|network|memory_leak|unknown","action":"rollback|scale_db|page_all_teams|monitor|restart_service|escalate|investigate"}. '
-        "No markdown, no explanation, no extra keys."
-    )
+    system_prompt = """You are an expert Site Reliability Engineer (SRE) on an on-call shift.
+You will receive an incident alert. Your job is to triage it immediately.
+
+You MUST respond with ONLY a JSON object. No explanation. No markdown.
+No extra text. Only raw JSON.
+
+Your response format:
+{
+  "severity": "<P1 or P2 or P3>",
+  "root_cause": "<one of: database, deployment, infra, external_dependency, network, memory_leak, unknown>",
+  "action": "<one of: rollback, scale_db, page_all_teams, monitor, restart_service, escalate, investigate>"
+}
+
+Severity guide:
+- P1: System down or data loss risk. Immediate action. Revenue impacted.
+- P2: Degraded performance. Some users affected. Fix within 1 hour.
+- P3: Minor issue. No user impact. Fix within 24 hours.
+
+Root cause guide:
+- database: DB connection issues, slow queries, pool exhaustion, replication lag
+- deployment: Recent code push or config change caused the issue
+- infra: CPU, memory, disk, or hardware level problems
+- external_dependency: Third-party API, payment gateway, or DNS failure
+- network: Packet loss, latency spikes, firewall or routing issues
+- memory_leak: Gradual memory growth causing OOM or slowdown
+- unknown: Cannot determine from available signals
+
+Action guide:
+- rollback: Undo the last deployment immediately
+- scale_db: Add read replicas or increase DB connection pool
+- page_all_teams: Wake up all engineers (only for true P1 outages)
+- monitor: Watch the metrics, no immediate action needed
+- restart_service: Restart the affected microservice
+- escalate: Escalate to senior engineer or vendor support
+- investigate: Gather more data before deciding (for ambiguous P2/P3)
+
+Think carefully about the signals. Some alerts contain misleading information.
+Focus on the most likely root cause given ALL signals together."""
 
     try:
-        response = client.responses.create(
-            model="gpt-4.1-mini",
-            input=[
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": incident_text},
+                {
+                    "role": "user",
+                    "content": f"INCIDENT ALERT:\n{incident_text}\n\nProvide your triage decision as JSON.",
+                },
             ],
             temperature=0,
         )
-        raw = (response.output_text or "").strip()
+        raw = (response.choices[0].message.content or "").strip()
 
         try:
             parsed = json.loads(raw)
@@ -186,7 +221,7 @@ def llm_agent_decision(client: OpenAI | None, incident_text: str) -> Dict[str, s
         LOGGER.warning("LLM response parsing failed; using safe default decision.")
         return default_decision
 
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         LOGGER.warning("LLM call failed (%s); using safe default decision.", exc)
         return default_decision
 
