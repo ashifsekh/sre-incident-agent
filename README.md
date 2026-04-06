@@ -287,12 +287,12 @@ Scores are normalized averages across all steps in each task (range: `[0.0, 1.0]
 
 | Task        | Heuristic Agent |
 | ----------- | --------------- |
-| Easy        | 0.6210          |
-| Medium      | 0.6960          |
-| Hard        | 0.6903          |
-| **Average** | **0.6691**      |
+| Easy        | 0.6330          |
+| Medium      | 0.5620          |
+| Hard        | 0.6150          |
+| **Average** | **0.6033**      |
 
-> **Note:** The heuristic baseline scores (~0.669 average) are intentionally well-calibrated — not too easy (not 0.9+) and not too hard (not 0.3). This gives a meaningful signal for evaluators comparing LLM agents: a strong LLM should comfortably beat 0.669, especially on the Hard task where adversarial noise is designed to challenge keyword-based reasoning.
+> **Note:** The heuristic baseline scores (~0.603 average) are intentionally well-calibrated — not too easy (not 0.9+) and not too hard (not 0.3). This gives a meaningful signal for evaluators comparing LLM agents: a strong LLM should comfortably beat 0.603, especially on the Hard task where adversarial noise is designed to challenge keyword-based reasoning.
 
 ---
 

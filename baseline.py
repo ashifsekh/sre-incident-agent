@@ -91,11 +91,11 @@ def heuristic_agent_decision(incident_text: str) -> Dict[str, str]:
 
     mapping: List[Tuple[List[str], str, str]] = [
         (["deploy", "rollout", "release", "canary", "manifest"], "deployment", "rollback"),
-        (["db", "database", "postgres", "replica", "query", "deadlock"], "database", "scale_db"),
-        (["kubernetes", "node", "volume", "autoscaler", "cluster"], "infra", "escalate"),
-        (["third-party", "vendor", "upstream", "provider", "gateway"], "external_dependency", "escalate"),
-        (["dns", "packet", "network", "bgp", "isp", "switch"], "network", "investigate"),
+        (["db", "database", "postgres", "replica", "deadlock", "connection pool"], "database", "scale_db"),
         (["memory", "oom", "heap", "rss", "leak"], "memory_leak", "restart_service"),
+        (["kubernetes", "node", "volume", "autoscaler", "cluster"], "infra", "escalate"),
+        (["dns", "packet", "network", "bgp", "isp", "switch"], "network", "investigate"),
+        (["third-party", "vendor", "upstream", "provider", "gateway"], "external_dependency", "escalate"),
     ]
 
     for keywords, inferred_root, inferred_action in mapping:

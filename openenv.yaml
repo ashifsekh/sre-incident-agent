@@ -40,7 +40,10 @@ tasks:
 
 env_vars:
   - name: OPENAI_API_KEY
-    description: API key for LLM inference
+    description: Primary API key for LLM inference
+    required: false
+  - name: HF_TOKEN
+    description: Hugging Face API token for inference router
     required: false
   - name: API_BASE_URL
     description: LLM API base URL

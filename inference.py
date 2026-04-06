@@ -117,30 +117,42 @@ def run_task(task_name: str, config: Dict[str, int]) -> List[float]:
 
     rewards: List[float] = []
     done = False
+    steps_taken = 0
+    score = 0.0
+    success = False
 
     log_start(task_name, BENCHMARK, MODEL_NAME)
 
-    step = 0
-    while not done:
-        step += 1
-        incident_text = str(obs.get("incident_text", ""))
+    try:
+        step = 0
+        while not done:
+            step += 1
+            incident_text = str(obs.get("incident_text", ""))
 
-        error = None
+            error = None
+            try:
+                decision = get_llm_decision(client, incident_text)
+                env_action = _decision_to_env_action(decision)
+                obs, reward, terminated, truncated, _ = env.step(env_action)
+                done = bool(terminated or truncated)
+                rewards.append(float(reward))
+                steps_taken = step
+                log_step(step, json.dumps(decision), float(reward), done, error)
+            except Exception as exc:  # noqa: BLE001
+                error = str(exc)
+                done = True
+                steps_taken = step
+                log_step(step, json.dumps({"severity": "P2", "root_cause": "unknown", "action": "monitor"}), 0.0, done, error)
+
+        score = sum(rewards) / max(len(rewards), 1)
+        success = score >= SUCCESS_SCORE_THRESHOLD
+    finally:
         try:
-            decision = get_llm_decision(client, incident_text)
-            env_action = _decision_to_env_action(decision)
-            obs, reward, terminated, truncated, _ = env.step(env_action)
-            done = bool(terminated or truncated)
-            rewards.append(float(reward))
-            log_step(step, decision, float(reward), done, error)
-        except Exception as exc:  # noqa: BLE001
-            error = str(exc)
-            done = True
-            log_step(step, {"severity": "P2", "root_cause": "unknown", "action": "monitor"}, 0.0, done, error)
+            env.close()
+        except Exception as e:
+            print(f"[DEBUG] env.close() error: {e}", flush=True)
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
-    score = sum(rewards) / max(len(rewards), 1)
-    success = score >= SUCCESS_SCORE_THRESHOLD
-    log_end(success, len(rewards), score, rewards)
     return rewards
 
 

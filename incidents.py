@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 INCIDENT_TEMPLATES: List[Dict[str, Any]] = [
     {
         "root_cause_category": "database",
-        "alert_text": "Write latency spike on primary Postgres cluster; checkout API timing out.",
+        "alert_text": "DB write latency spike on primary Postgres cluster; checkout API timing out.",
         "true_severity": "P1",
         "true_root_cause": "DB primary underprovisioned after traffic surge",
         "correct_action": "Increase DB capacity and throttle expensive write paths",
@@ -22,7 +22,7 @@ INCIDENT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "root_cause_category": "database",
-        "alert_text": "Connection pool exhaustion in payments service; deadlock count rising.",
+        "alert_text": "Database connection pool exhaustion in payments DB; deadlock count rising.",
         "true_severity": "P1",
         "true_root_cause": "Long-running transaction causing lock contention",
         "correct_action": "Terminate blocking transaction and deploy lock-safe query path",
@@ -35,7 +35,7 @@ INCIDENT_TEMPLATES: List[Dict[str, Any]] = [
     },
     {
         "root_cause_category": "database",
-        "alert_text": "Replica lag exceeded 12 minutes; reads returning stale order status.",
+        "alert_text": "Postgres replica lag exceeded 12 minutes; DB reads returning stale order status.",
         "true_severity": "P2",
         "true_root_cause": "Replication I/O throttled by storage burst limit",
         "correct_action": "Move replica to higher IOPS storage and reduce read pressure",
