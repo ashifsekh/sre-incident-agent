@@ -37,3 +37,14 @@ tasks:
       difficulty: 3
       seed: 42
     grader: grader.py
+
+env_vars:
+  - name: OPENAI_API_KEY
+    description: API key for LLM inference
+    required: false
+  - name: API_BASE_URL
+    description: LLM API base URL
+    required: false
+  - name: MODEL_NAME
+    description: LLM model identifier
+    required: false
