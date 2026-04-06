@@ -51,8 +51,8 @@ This project provides a reproducible, extensible benchmark for building and eval
 **Key capabilities:**
 
 - 🎮 Standard [Gymnasium](https://gymnasium.farama.org/) interface compatible with any RL or LLM agent
-- 📊 Three difficulty levels with increasing noise in telemetry signals
-- 🧮 Weighted, partial-credit scoring across severity, root cause, and action
+- 📊 Three difficulty levels with increasing adversarial noise in telemetry signals
+- 🧮 Weighted, partial-credit scoring across severity, root cause, and action — including an overreaction penalty
 - 🤖 Two included baseline agents: a keyword heuristic and a GPT-4o-mini LLM agent
 - 🌐 FastAPI server with OpenEnv-compatible `/reset` endpoint for remote evaluation
 - 🐳 Docker-ready for deployment to Hugging Face Spaces
@@ -84,7 +84,8 @@ This project provides a reproducible, extensible benchmark for building and eval
        │ generate_     │   │ score_decision()   │
        │ incident()    │   │ Weighted partial   │
        │ 18 templates  │   │ credit scoring     │
-       │ + noise       │   │                    │
+       │ + adversarial │   │ + overreaction     │
+       │   noise       │   │   penalty          │
        └───────────────┘   └────────────────────┘
                    │
        ┌───────────▼───────────────┐
@@ -113,13 +114,14 @@ This project provides a reproducible, extensible benchmark for building and eval
 At each step, the agent receives a structured dictionary observation:
 
 | Field                | Type    | Description                                               |
-|----------------------|---------|-----------------------------------------------------------|
+| -------------------- | ------- | --------------------------------------------------------- |
 | `incident_text`      | `str`   | Full alert text with injected telemetry signals and noise |
 | `step_number`        | `int`   | Current step index within the episode                     |
 | `incidents_resolved` | `int`   | Count of steps where total reward ≥ 0.6                   |
 | `current_score`      | `float` | Running average reward score in `[0.0, 1.0]`              |
 
 **Example observation:**
+
 ```
 ALERT: Write latency spike on primary Postgres cluster; checkout API timing out.
 Context: service=payments, region=us-east-1, incident_age=14m, affected_requests=73%.
@@ -133,7 +135,7 @@ Additional telemetry (may include noise):
 Each action is a multi-part discrete decision with three required fields:
 
 | Field        | Options                                                                                           |
-|--------------|---------------------------------------------------------------------------------------------------|
+| ------------ | ------------------------------------------------------------------------------------------------- |
 | `severity`   | `P1`, `P2`, `P3`                                                                                  |
 | `root_cause` | `database`, `deployment`, `infra`, `external_dependency`, `network`, `memory_leak`, `unknown`     |
 | `action`     | `rollback`, `scale_db`, `page_all_teams`, `monitor`, `restart_service`, `escalate`, `investigate` |
@@ -142,25 +144,25 @@ Internally, actions are represented as integer indices into these label lists an
 
 ### Reward Function
 
-The grader (`grader.py`) scores each triage decision with explicit partial credit:
+The grader (`grader.py`) uses a **weighted multi-dimensional scoring system with partial credit** — not binary right/wrong. This provides a rich, dense learning signal across the full episode trajectory, rewarding nuanced reasoning rather than just correct final answers.
 
 #### Severity Score (weight: **0.3**)
 
-| Prediction vs Ground Truth | Score |
-|----------------------------|-------|
-| Exact match                | 1.0   |
-| One level off (e.g. P1→P2) | 0.5   |
-| Two levels off (e.g. P1→P3)| 0.0   |
+| Prediction vs Ground Truth  | Score |
+| --------------------------- | ----- |
+| Exact match                 | 1.0   |
+| One level off (e.g. P1→P2)  | 0.5   |
+| Two levels off (e.g. P1→P3) | 0.0   |
 
 #### Root Cause Score (weight: **0.4**)
 
-| Prediction vs Ground Truth      | Score |
-|---------------------------------|-------|
-| Exact match                     | 1.0   |
-| Semantically related category   | 0.4   |
-| Wrong                           | 0.0   |
+| Prediction vs Ground Truth    | Score |
+| ----------------------------- | ----- |
+| Exact match                   | 1.0   |
+| Semantically related category | 0.4   |
+| Wrong                         | 0.0   |
 
-Related category groups (provide partial credit):
+Related category groups reflect real SRE domain knowledge — causes like `network` and `infra` genuinely overlap in practice, and partial credit rewards agents that reason correctly even under ambiguity:
 
 ```python
 {
@@ -175,12 +177,14 @@ Related category groups (provide partial credit):
 
 #### Action Score (weight: **0.3**)
 
-| Prediction                             | Score |
-|----------------------------------------|-------|
-| Exact match with expected action       | 1.0   |
-| Acceptable alternative action          | 0.6   |
-| Wrong (no penalty)                     | 0.0   |
-| Overreaction: `page_all_teams` on P3   | −0.2  |
+| Prediction                           | Score |
+| ------------------------------------ | ----- |
+| Exact match with expected action     | 1.0   |
+| Acceptable alternative action        | 0.6   |
+| Wrong (no penalty)                   | 0.0   |
+| Overreaction: `page_all_teams` on P3 | −0.2  |
+
+> **Design note:** The overreaction penalty on `page_all_teams` for P3 incidents is intentional. In real SRE practice, waking up an entire engineering team for a minor issue is expensive and damaging to team trust. This mechanic penalizes disproportionate responses, just as a real runbook would, and discourages agents from defaulting to the most drastic action.
 
 #### Total Score Formula
 
@@ -197,13 +201,19 @@ An incident is considered **resolved** if `total_score ≥ 0.6`.
 
 Three tasks of increasing difficulty are defined in `openenv.yaml`:
 
-| Task ID  | Name   | `max_steps` | `difficulty` | Noise Level                         |
-|----------|--------|-------------|--------------|-------------------------------------|
-| `easy`   | Easy   | 10          | 1            | 1 misleading signal per incident    |
-| `medium` | Medium | 20          | 2            | 2 misleading signals per incident   |
-| `hard`   | Hard   | 30          | 3            | 3 misleading signals per incident   |
+| Task ID  | Name   | `max_steps` | `difficulty` | Noise Level                                        |
+| -------- | ------ | ----------- | ------------ | -------------------------------------------------- |
+| `easy`   | Easy   | 10          | 1            | 1 misleading signal per incident                   |
+| `medium` | Medium | 20          | 2            | 2 adversarial misleading signals per incident      |
+| `hard`   | Hard   | 30          | 3            | 3 adversarial misleading signals per incident      |
 
-All tasks use `seed=42` for reproducibility. The seed advances deterministically at each step (`seed + step_number`), ensuring every evaluation run produces the same sequence of incidents.
+All tasks use `seed=42` for reproducibility. The seed advances deterministically at each step using a hash-based mixing function to prevent incident repetition across long episodes:
+
+```python
+rng = random.Random((seed * 13 + 97) % 999983)
+```
+
+**What makes Hard genuinely hard:** At difficulty=3, the injected misleading signals are adversarially chosen from a *different* root cause category than the true one. For example, a `database` incident will have misleading signals containing `deployment` keywords like "rollout" and "manifest". A frontier LLM that naively pattern-matches on keywords will be misled; only models that reason about the primary alert signal vs. secondary telemetry will score well.
 
 ---
 
@@ -211,21 +221,20 @@ All tasks use `seed=42` for reproducibility. The seed advances deterministically
 
 The environment ships with **18 hand-crafted incident templates** across 6 root cause categories:
 
-| Category              | Examples                                                         |
-|-----------------------|------------------------------------------------------------------|
-| `database`            | Postgres write latency, connection pool exhaustion, replica lag  |
-| `deployment`          | API contract breakage, ingress misconfiguration, thread pool bug |
-| `infra`               | Kubernetes node eviction, volume quota exhaustion, kernel mismatch|
-| `external_dependency` | Payment gateway outage, SMS vendor throttling, identity API lag  |
-| `network`             | Packet loss from faulty switch, CoreDNS throttling, BGP flap    |
+| Category              | Examples                                                                     |
+| --------------------- | ---------------------------------------------------------------------------- |
+| `database`            | Postgres write latency, connection pool exhaustion, replica lag              |
+| `deployment`          | API contract breakage, ingress misconfiguration, thread pool bug             |
+| `infra`               | Kubernetes node eviction, volume quota exhaustion, kernel mismatch           |
+| `external_dependency` | Payment gateway outage, SMS vendor throttling, identity API lag              |
+| `network`             | Packet loss from faulty switch, CoreDNS throttling, BGP flap                 |
 | `memory_leak`         | Unbounded in-process cache growth, library object retention, middleware leak |
 
 Each template includes:
+
 - An **alert text** (the primary signal)
 - **True severity**, **true root cause**, and **correct action** (the ground truth)
-- **Misleading signals** (injected at difficulty-appropriate counts to challenge agents)
-
-At runtime, `generate_incident()` randomly selects a template, injects a service name, region, incident age, and affected request percentage, then appends `N` misleading signals based on the difficulty setting.
+- **Adversarial misleading signals** (drawn from different root cause categories at higher difficulty to actively mislead agents)
 
 ---
 
@@ -262,27 +271,28 @@ A benchmark-grade runner that connects to the Hugging Face Inference Router and 
 
 Configurable via environment variables:
 
-| Variable       | Default                                    | Description                        |
-|----------------|--------------------------------------------|------------------------------------|
-| `HF_TOKEN`     | —                                          | Hugging Face API token             |
-| `API_KEY`      | —                                          | Alternative API key                |
-| `API_BASE_URL` | `https://router.huggingface.co/v1`         | OpenAI-compatible API base URL     |
-| `MODEL_NAME`   | `Qwen/Qwen2.5-72B-Instruct`               | Model to use for inference         |
+| Variable          | Default                            | Description                    |
+| ----------------- | ---------------------------------- | ------------------------------ |
+| `OPENAI_API_KEY`  | —                                  | Primary API key (required)     |
+| `HF_TOKEN`        | —                                  | Hugging Face API token         |
+| `API_KEY`         | —                                  | Alternative API key fallback   |
+| `API_BASE_URL`    | `https://router.huggingface.co/v1` | OpenAI-compatible API base URL |
+| `MODEL_NAME`      | `Qwen/Qwen2.5-72B-Instruct`        | Model to use for inference     |
 
 ---
 
 ## Baseline Scores
 
-Scores are normalized averages across all steps in each task (range: `[0.0, 1.0]`):
+Scores are normalized averages across all steps in each task (range: `[0.0, 1.0]`), generated with `seed=42`:
 
 | Task        | Heuristic Agent |
-|-------------|----------------|
-| Easy        | 0.6210         |
-| Medium      | 0.6960         |
-| Hard        | 0.6903         |
-| **Average** | **0.6691**     |
+| ----------- | --------------- |
+| Easy        | 0.6210          |
+| Medium      | 0.6960          |
+| Hard        | 0.6903          |
+| **Average** | **0.6691**      |
 
-> **Note:** The heuristic agent is a strong baseline due to its keyword-to-action mapping closely mirroring the ground truth label design. LLM agents are expected to score higher on harder tasks with heavier noise by leveraging broader contextual reasoning.
+> **Note:** The heuristic baseline scores (~0.669 average) are intentionally well-calibrated — not too easy (not 0.9+) and not too hard (not 0.3). This gives a meaningful signal for evaluators comparing LLM agents: a strong LLM should comfortably beat 0.669, especially on the Hard task where adversarial noise is designed to challenge keyword-based reasoning.
 
 ---
 
@@ -298,11 +308,13 @@ sre-incident-agent/
 ├── inference.py            # OpenEnv inference script (HF router, Qwen2.5)
 ├── openenv.yaml            # OpenEnv benchmark manifest (tasks, config, grader)
 ├── pyproject.toml          # Python project metadata and dependencies
+├── uv.lock                 # Reproducible dependency lock file
 ├── requirements.txt        # Minimal requirements for Docker builds
 ├── Dockerfile              # Container image for Hugging Face Spaces (port 7860)
-├── validate-submission.sh  # Pre-submission checker (HF ping + docker build + openenv validate)
+├── validate-submission.sh  # Pre-submission checker
+├── .gitignore              # Excludes __pycache__, .venv, etc.
 └── server/
-    └── app.py              # Alternate server entry point
+    └── app.py              # Alternate entry point required by OpenEnv multi-mode spec
 ```
 
 ---
@@ -327,7 +339,7 @@ uv sync
 python -c "from env import SREIncidentTriageEnv; e = SREIncidentTriageEnv({'max_steps': 1, 'difficulty': 1, 'seed': 42}); print(e.reset())"
 ```
 
-### (Optional) Set your OpenAI API key for LLM baselines
+### Set your API key for LLM baselines
 
 ```bash
 export OPENAI_API_KEY="sk-..."
@@ -356,7 +368,9 @@ llm        | 0.xxxx | 0.xxxx | 0.xxxx
 ### Run the OpenEnv inference script
 
 ```bash
-export HF_TOKEN="hf_..."
+export OPENAI_API_KEY="sk-..."        # Required for live LLM agent
+export API_BASE_URL="https://router.huggingface.co/v1"  # Optional override
+export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"           # Optional override
 python inference.py
 ```
 
@@ -366,16 +380,16 @@ python inference.py
 uvicorn app:app --host 0.0.0.0 --port 7860
 ```
 
-Then visit [`http://localhost:7860/`](http://localhost:7860/) to trigger a live heuristic demo across all tasks, or POST to `/reset` to see an initial environment observation.
+Then visit [`http://localhost:7860/`](http://localhost:7860/) to trigger a live heuristic demo, or POST to `/reset` to see an initial environment observation.
 
 ---
 
 ## API Reference
 
-| Method | Endpoint  | Description                                                                 |
-|--------|-----------|-----------------------------------------------------------------------------|
-| `GET`  | `/`       | Run heuristic baseline on all tasks and return aggregate scores             |
-| `GET`  | `/health` | Liveness check — returns `{"status": "ok"}`                                 |
+| Method | Endpoint  | Description                                                                  |
+| ------ | --------- | ---------------------------------------------------------------------------- |
+| `GET`  | `/`       | Run heuristic baseline on all tasks and return aggregate scores              |
+| `GET`  | `/health` | Liveness check — returns `{"status": "ok"}`                                  |
 | `POST` | `/reset`  | Instantiate and reset the environment; returns initial observation and state |
 
 ### `GET /` — Response example
@@ -415,6 +429,8 @@ Then visit [`http://localhost:7860/`](http://localhost:7860/) to trigger a live 
 
 The included `Dockerfile` builds a minimal Python 3.11-slim image that serves the FastAPI app on port **7860** (the default for Hugging Face Spaces).
 
+The `server/` directory contains a copy of `app.py` with an added `main()` entry point, required by the OpenEnv multi-mode deployment spec.
+
 ```bash
 # Build
 docker build -t sre-incident-agent .
@@ -431,11 +447,19 @@ The app will be available at `http://localhost:7860`.
 
 ## OpenEnv Submission
 
-This project is an [OpenEnv](https://openenv.dev/) benchmark environment. The `openenv.yaml` manifest declares the entry point, tasks, and grader.
+This project is an [OpenEnv](https://openenv.dev/) benchmark environment. The `openenv.yaml` manifest declares the entry point, tasks, grader, and required environment variables.
+
+### Required environment variables
+
+| Variable         | Description                              |
+| ---------------- | ---------------------------------------- |
+| `OPENAI_API_KEY` | API key for LLM inference (primary)      |
+| `API_BASE_URL`   | LLM API base URL (optional override)     |
+| `MODEL_NAME`     | LLM model identifier (optional override) |
 
 ### Pre-submission checklist
 
-Run the included validator script to confirm your submission is ready:
+Run the included validator script:
 
 ```bash
 bash validate-submission.sh <YOUR_HF_SPACE_URL>
@@ -461,11 +485,11 @@ pip install openenv-core
 
 The `SREIncidentTriageEnv` accepts a `config` dictionary at construction time:
 
-| Key         | Type  | Default | Description                                  |
-|-------------|-------|---------|----------------------------------------------|
-| `max_steps` | `int` | `10`    | Maximum number of incidents per episode      |
-| `difficulty`| `int` | `1`     | Noise level: 1 (easy), 2 (medium), 3 (hard)  |
-| `seed`      | `int` | `42`    | Base seed for deterministic incident generation |
+| Key          | Type  | Default | Description                                     |
+| ------------ | ----- | ------- | ----------------------------------------------- |
+| `max_steps`  | `int` | `10`    | Maximum number of incidents per episode         |
+| `difficulty` | `int` | `1`     | Noise level: 1 (easy), 2 (medium), 3 (hard)     |
+| `seed`       | `int` | `42`    | Base seed for deterministic incident generation |
 
 ```python
 from env import SREIncidentTriageEnv
@@ -478,4 +502,4 @@ env = SREIncidentTriageEnv({
 obs, info = env.reset()
 ```
 
-The seed advances deterministically at each step (`seed + step_number`), so episodes are fully reproducible across runs, languages, and frameworks.
+The seed advances deterministically at each step using hash-based mixing, so episodes are fully reproducible across runs, languages, and frameworks.
