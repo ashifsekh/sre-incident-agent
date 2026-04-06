@@ -19,6 +19,10 @@ INCIDENT_TEMPLATES: List[Dict[str, Any]] = [
             "Blue-green deploy cutover happened in one region",
             "Canary release gate reported flaky rollout health checks",
         ],
+        "contradictory_signals": [
+            "Deployment logs confirm all rollouts completed successfully with zero errors — this appears to be a DB-layer issue masked by deploy timing",
+            "Correlation analysis shows latency spike started 8 minutes BEFORE the deploy completed, ruling out deployment as root cause",
+        ],
     },
     {
         "root_cause_category": "database",
@@ -31,6 +35,10 @@ INCIDENT_TEMPLATES: List[Dict[str, Any]] = [
             "Rollout controller retried a failed canary promotion twice",
             "Helm chart deploy introduced a rewritten readiness probe",
             "Feature branch release train merged during the same window",
+        ],
+        "contradictory_signals": [
+            "All deployment diffs reviewed — no schema or query changes in this release cycle, pointing to organic DB contention",
+            "Identical deadlock pattern observed last month with no deploys in flight, confirming this is a recurring DB concurrency issue",
         ],
     },
     {
@@ -45,6 +53,10 @@ INCIDENT_TEMPLATES: List[Dict[str, Any]] = [
             "Rollback marker appeared for a recently shipped release",
             "Argo CD sync wave reordered deployment hooks",
         ],
+        "contradictory_signals": [
+            "Storage team confirms burst IOPS limit was hit — replica starvation is a known issue on this volume class, unrelated to any deploy",
+            "Network team verified zero packet loss between primary and replica — this is purely a storage throughput bottleneck",
+        ],
     },
     {
         "root_cause_category": "deployment",
@@ -57,6 +69,10 @@ INCIDENT_TEMPLATES: List[Dict[str, Any]] = [
             "Connection pool saturation warnings appeared in checkout",
             "Deadlock counter increased on primary Postgres",
             "Read replica reported stale rows during peak",
+        ],
+        "contradictory_signals": [
+            "DB metrics show connection pool and replica lag spikes started exactly when new pods began serving traffic — classic deployment-induced cascade",
+            "Git blame confirms the breaking change: checkout-service v2026.04.1 removed a required header that downstream services depend on",
         ],
     },
     {
@@ -71,6 +87,10 @@ INCIDENT_TEMPLATES: List[Dict[str, Any]] = [
             "Query planner switched to sequential scan on hot table",
             "Transaction lock wait time rose in payments DB",
         ],
+        "contradictory_signals": [
+            "DB load is a symptom, not the cause — connection surge correlates exactly with the ingress rewrite sending malformed requests that trigger retry storms",
+            "Canary passed because it only received 1% of traffic; the ingress path rewrite bug only manifests under full production routing rules",
+        ],
     },
     {
         "root_cause_category": "deployment",
@@ -83,6 +103,10 @@ INCIDENT_TEMPLATES: List[Dict[str, Any]] = [
             "Replica read consistency lag crossed warning threshold",
             "Postgres autovacuum on queue table ran unusually long",
             "Connection churn exhausted DB max_connections briefly",
+        ],
+        "contradictory_signals": [
+            "Config diff shows worker_threads changed from 16 to 4 in the new release — this is not a DB issue, it is a deployment config regression",
+            "DB metrics returned to normal after reverting the image-processor config, confirming the deploy caused the queue backlog",
         ],
     },
     {
@@ -303,6 +327,12 @@ def generate_incident(seed: int, difficulty: int) -> Dict[str, str]:
         incident_text_lines.append("Additional telemetry (may include noise):")
         for signal in selected_misleading:
             incident_text_lines.append(f"- {signal}")
+
+    # At hard difficulty, inject contradictory signals that actively argue
+    # for the wrong root cause with plausible-sounding explanations.
+    if difficulty == 3 and template.get("contradictory_signals"):
+        contradictory = rng.choice(template["contradictory_signals"])
+        incident_text_lines.append(f"Analyst note: {contradictory}")
 
     return {
         "incident_text": "\n".join(incident_text_lines),

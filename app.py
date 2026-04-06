@@ -7,7 +7,13 @@ from typing import Dict
 from fastapi import FastAPI
 
 from baseline import run_baseline
-from env import SREIncidentTriageEnv
+from env import (
+    ACTION_LABELS,
+    ROOT_CAUSE_LABELS,
+    SEVERITY_LABELS,
+    SREAction,
+    SREIncidentTriageEnv,
+)
 
 
 app = FastAPI(title="sre-incident-agent", version="0.1.0")
@@ -81,17 +87,30 @@ def reset_env() -> Dict[str, object]:
 
 
 @app.post("/step")
-def step_env(action: Dict[str, int]) -> Dict[str, object]:
+def step_env(action: SREAction) -> Dict[str, object]:
     """
-    OpenEnv step endpoint. Takes a multi-part action and returns
-    the next observation, reward, and done status.
+    OpenEnv step endpoint. Takes a typed SREAction (severity, root_cause,
+    action as strings) and returns the next observation, reward, and done status.
     Uses a module-level env instance so state persists between calls.
     """
     global _active_env
     if _active_env is None:
         return {"error": "Call /reset first to initialize the environment"}
 
-    obs, reward, terminated, truncated, info = _active_env.step(action)
+    def _label_index(label: str, choices: list, default: int = 0) -> int:
+        norm = label.strip().lower().replace("-", "_").replace(" ", "_")
+        for i, c in enumerate(choices):
+            if c.lower() == norm:
+                return i
+        return default
+
+    env_action = {
+        "severity": _label_index(action.severity, SEVERITY_LABELS, 1),
+        "root_cause": _label_index(action.root_cause, ROOT_CAUSE_LABELS, 6),
+        "action": _label_index(action.action, ACTION_LABELS, 3),
+    }
+
+    obs, reward, terminated, truncated, info = _active_env.step(env_action)
     return {
         "observation": {
             "incident_text": obs.get("incident_text", ""),

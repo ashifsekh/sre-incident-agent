@@ -105,15 +105,48 @@ def get_llm_decision(client: Optional[OpenAI], incident_text: str) -> Dict[str, 
         return fallback
 
 
-def run_task(task_name: str, config: Dict[str, int]) -> List[float]:
-    from baseline import _decision_to_env_action
+# ---------------------------------------------------------------------------
+# Label lists (inlined from env.py so inference.py is fully self-contained)
+# ---------------------------------------------------------------------------
+SEVERITY_LABELS = ["P1", "P2", "P3"]
+ROOT_CAUSE_LABELS = [
+    "database", "deployment", "infra", "external_dependency",
+    "network", "memory_leak", "unknown",
+]
+ACTION_LABELS = [
+    "rollback", "scale_db", "page_all_teams", "monitor",
+    "restart_service", "escalate", "investigate",
+]
 
+
+def _normalize(text: str) -> str:
+    return text.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _decision_to_env_action(decision: Dict[str, str]) -> Dict[str, int]:
+    """Convert string labels to environment integer indices."""
+    sev = decision.get("severity", "P2").strip().upper()
+    sev_idx = SEVERITY_LABELS.index(sev) if sev in SEVERITY_LABELS else 1
+
+    rc = _normalize(decision.get("root_cause", "unknown"))
+    rc_idx = ROOT_CAUSE_LABELS.index(rc) if rc in ROOT_CAUSE_LABELS else 6
+
+    act = _normalize(decision.get("action", "monitor"))
+    act_idx = ACTION_LABELS.index(act) if act in ACTION_LABELS else 3
+
+    return {"severity": sev_idx, "root_cause": rc_idx, "action": act_idx}
+
+
+def run_task(task_name: str, config: Dict[str, int]) -> List[float]:
     env = SREIncidentTriageEnv(config)
     obs, _ = env.reset()
 
     client = None
     if API_KEY:
         client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
+
+    max_steps = int(config.get("max_steps", 10))
+    max_total_reward = max_steps * 1.0  # each step can yield at most 1.0
 
     rewards: List[float] = []
     done = False
@@ -144,7 +177,8 @@ def run_task(task_name: str, config: Dict[str, int]) -> List[float]:
                 steps_taken = step
                 log_step(step, json.dumps({"severity": "P2", "root_cause": "unknown", "action": "monitor"}), 0.0, done, error)
 
-        score = sum(rewards) / max(len(rewards), 1)
+        score = sum(rewards) / max_total_reward if max_total_reward > 0 else 0.0
+        score = min(max(score, 0.0), 1.0)  # clamp to [0, 1]
         success = score >= SUCCESS_SCORE_THRESHOLD
     finally:
         try:
@@ -164,3 +198,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
