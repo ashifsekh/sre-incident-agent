@@ -6,14 +6,20 @@ import json
 import os
 from typing import Dict, List, Optional
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # loads .env when running locally; no-op if not present
+except ImportError:
+    pass  # dotenv optional — env vars set directly in HF Space secrets
+
 from openai import OpenAI
 
 from env import SREIncidentTriageEnv
 
 
 API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://openrouter.ai/api/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "nvidia/llama-3.3-nemotron-super-49b-v1")
 
 BENCHMARK = "sre-incident-agent"
 SUCCESS_SCORE_THRESHOLD = 0.5

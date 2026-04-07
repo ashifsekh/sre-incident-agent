@@ -8,6 +8,12 @@ import os
 import re
 from typing import Any, Dict, List, Tuple
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from openai import OpenAI
 
 from env import ACTION_LABELS, ROOT_CAUSE_LABELS, SEVERITY_LABELS, SREIncidentTriageEnv
