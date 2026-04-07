@@ -34,11 +34,11 @@ def log_start(task, env, model):
 def log_step(step, action, reward, done, error):
     error_val = error if error else "null"
     done_val = str(done).lower()
-    print(f"[STEP] step={step} action={action} reward={reward:+.2f} done={done_val} error={error_val}", flush=True)
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
 
 
 def log_end(success, steps, score, rewards):
-    rewards_str = ",".join(f"{r:+.2f}" for r in rewards)
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
