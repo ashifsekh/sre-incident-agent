@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Optional
 
 from fastapi import FastAPI
 
@@ -65,7 +65,7 @@ def health() -> Dict[str, str]:
 
 
 @app.post("/reset")
-def reset_env() -> Dict[str, object]:
+def reset_env(config: Optional[Dict[str, int]] = None) -> Dict[str, object]:
     """
     OpenEnv validator ping endpoint.
     Instantiates a fresh environment, calls reset(), and returns the
