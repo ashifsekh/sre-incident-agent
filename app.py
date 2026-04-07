@@ -72,7 +72,13 @@ def reset_env() -> Dict[str, object]:
     initial observation to prove the environment works end to end.
     """
     global _active_env
-    _active_env = SREIncidentTriageEnv({"max_steps": 10, "difficulty": 1, "seed": 42})
+    env_config = {"max_steps": 10, "difficulty": 1, "seed": 42}
+    if config:
+        for key in ("max_steps", "difficulty", "seed"):
+            if key in config:
+                env_config[key] = int(config[key])
+
+    _active_env = SREIncidentTriageEnv(env_config)
     obs, info = _active_env.reset()
     return {
         "status": "ok",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from urllib import error, request
 from typing import Dict, List, Optional
 
 try:
@@ -19,6 +20,7 @@ from env import SREIncidentTriageEnv
 
 API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://openrouter.ai/api/v1")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://127.0.0.1:7860")
 MODEL_NAME = os.getenv("MODEL_NAME", "nvidia/llama-3.3-nemotron-super-49b-v1")
 
 BENCHMARK = "sre-incident-agent"
@@ -32,11 +34,11 @@ def log_start(task, env, model):
 def log_step(step, action, reward, done, error):
     error_val = error if error else "null"
     done_val = str(done).lower()
-    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+    print(f"[STEP] step={step} action={action} reward={reward:+.2f} done={done_val} error={error_val}", flush=True)
 
 
 def log_end(success, steps, score, rewards):
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    rewards_str = ",".join(f"{r:+.2f}" for r in rewards)
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
@@ -125,6 +127,45 @@ ACTION_LABELS = [
 ]
 
 
+class RemoteSREIncidentTriageEnv:
+    def __init__(self, base_url: str, config: Dict[str, int]) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.config = dict(config)
+
+    def _request(self, path: str, payload: Dict[str, object]) -> Dict[str, object]:
+        url = f"{self.base_url}{path}"
+        body = json.dumps(payload).encode("utf-8")
+        req = request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with request.urlopen(req, timeout=30) as response:
+                response_text = response.read().decode("utf-8")
+        except error.URLError as exc:
+            raise RuntimeError(f"failed to call {url}: {exc}") from exc
+
+        if not response_text:
+            return {}
+        return json.loads(response_text)
+
+    def reset(self):
+        payload = dict(self.config)
+        response = self._request("/reset", payload)
+        observation = response.get("observation", {})
+        info = {"state": response.get("info", {})}
+        return observation, info
+
+    def step(self, action: Dict[str, int]):
+        response = self._request("/step", action)
+        observation = response.get("observation", {})
+        reward = float(response.get("reward", 0.0))
+        terminated = bool(response.get("terminated", False))
+        truncated = bool(response.get("truncated", False))
+        info = response.get("info", {})
+        return observation, reward, terminated, truncated, info
+
+    def close(self) -> None:
+        return None
+
+
 def _normalize(text: str) -> str:
     return text.strip().lower().replace("-", "_").replace(" ", "_")
 
@@ -143,8 +184,17 @@ def _decision_to_env_action(decision: Dict[str, str]) -> Dict[str, int]:
     return {"severity": sev_idx, "root_cause": rc_idx, "action": act_idx}
 
 
+def _make_env(config: Dict[str, int]):
+    try:
+        remote_env = RemoteSREIncidentTriageEnv(ENV_BASE_URL, config)
+        remote_env.reset()
+        return remote_env
+    except Exception:
+        return SREIncidentTriageEnv(config)
+
+
 def run_task(task_name: str, config: Dict[str, int]) -> List[float]:
-    env = SREIncidentTriageEnv(config)
+    env = _make_env(config)
     obs, _ = env.reset()
 
     client = None
@@ -176,12 +226,12 @@ def run_task(task_name: str, config: Dict[str, int]) -> List[float]:
                 done = bool(terminated or truncated)
                 rewards.append(float(reward))
                 steps_taken = step
-                log_step(step, json.dumps(decision), float(reward), done, error)
+                log_step(step, json.dumps(decision, separators=(",", ":")), float(reward), done, error)
             except Exception as exc:  # noqa: BLE001
                 error = str(exc)
                 done = True
                 steps_taken = step
-                log_step(step, json.dumps({"severity": "P2", "root_cause": "unknown", "action": "monitor"}), 0.0, done, error)
+                log_step(step, json.dumps({"severity": "P2", "root_cause": "unknown", "action": "monitor"}, separators=(",", ":")), 0.0, done, error)
 
         score = sum(rewards) / max_total_reward if max_total_reward > 0 else 0.0
         score = min(max(score, 0.0), 1.0)  # clamp to [0, 1]
