@@ -121,7 +121,7 @@ At each step, the agent receives a structured dictionary observation:
 | `incident_text`      | `str`   | Full alert text with injected telemetry signals and noise |
 | `step_number`        | `int`   | Current step index within the episode                     |
 | `incidents_resolved` | `int`   | Count of steps where total reward ≥ 0.6                   |
-| `current_score`      | `float` | Running average reward score in `[0.0, 1.0]`              |
+| `current_score`      | `float` | Running average reward score in `(0.001, 0.999)`           |
 
 **Example observation:**
 
@@ -193,8 +193,10 @@ Related category groups reflect real SRE domain knowledge — causes like `netwo
 
 ```
 total = (severity × 0.3) + (root_cause × 0.4) + (action × 0.3)
-total = clamp(total, 0.0, 1.0)
+total = clamp(total, 0.001, 0.999)
 ```
+
+All individual score components (severity, root_cause, action) are also clamped to the strict range **(0.001, 0.999)** to ensure no score can ever be exactly 0.0 or 1.0.
 
 An incident is considered **resolved** if `total_score ≥ 0.6`.
 
@@ -287,7 +289,7 @@ Configurable via environment variables:
 
 ## Baseline Scores
 
-Scores are normalized averages across all steps in each task (range: `[0.0, 1.0]`), generated with `seed=42`:
+Scores are normalized averages across all steps in each task (range: `(0.001, 0.999)`), generated with `seed=42`:
 
 | Task        | Heuristic Agent |
 | ----------- | --------------- |
