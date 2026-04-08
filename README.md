@@ -67,6 +67,8 @@ This project provides a reproducible, extensible benchmark for building and eval
 │   GET /       → run heuristic demo on all tasks                 │
 │   GET /health → liveness probe                                  │
 │   POST /reset → OpenEnv validator ping                          │
+│   POST /step  → step environment with an action                 │
+│   GET /state  → current environment state snapshot              │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
             ┌──────────────▼──────────────┐
@@ -75,6 +77,7 @@ This project provides a reproducible, extensible benchmark for building and eval
             │                             │
             │  reset() → initial obs      │
             │  step(action) → obs,reward  │
+            │  state() → SREState         │
             │  render() → human output    │
             └──────┬───────────┬──────────┘
                    │           │
@@ -100,8 +103,8 @@ This project provides a reproducible, extensible benchmark for building and eval
        │       inference.py        │
        │                           │
        │  OpenEnv benchmark runner │
-       │  HuggingFace router       │
-       │  Qwen2.5-72B-Instruct     │
+       │  OpenRouter API           │
+       │  Llama-3.3-Nemotron-Super │
        └───────────────────────────┘
 ```
 
@@ -267,17 +270,18 @@ decision = llm_agent_decision(client, incident_text)
 
 ### 3. OpenEnv Inference Agent (`inference.py`)
 
-A benchmark-grade runner that connects to the Hugging Face Inference Router and uses **Qwen/Qwen2.5-72B-Instruct** by default. Produces structured `[START]`, `[STEP]`, and `[END]` log lines consumable by the OpenEnv platform.
+A benchmark-grade runner that connects to the **OpenRouter API** and uses **nvidia/llama-3.3-nemotron-super-49b-v1** by default. Produces structured `[START]`, `[STEP]`, and `[END]` log lines consumable by the OpenEnv platform. Includes a `RemoteSREIncidentTriageEnv` client that can call the FastAPI server's `/reset` and `/step` endpoints over HTTP, with automatic fallback to a local `SREIncidentTriageEnv` if the server is unavailable.
 
 Configurable via environment variables:
 
-| Variable          | Default                            | Description                    |
-| ----------------- | ---------------------------------- | ------------------------------ |
-| `OPENAI_API_KEY`  | —                                  | Primary API key (required)     |
-| `HF_TOKEN`        | —                                  | Hugging Face API token         |
-| `API_KEY`         | —                                  | Alternative API key fallback   |
-| `API_BASE_URL`    | `https://router.huggingface.co/v1` | OpenAI-compatible API base URL |
-| `MODEL_NAME`      | `Qwen/Qwen2.5-72B-Instruct`        | Model to use for inference     |
+| Variable          | Default                                      | Description                        |
+| ----------------- | -------------------------------------------- | ---------------------------------- |
+| `OPENAI_API_KEY`  | —                                            | Primary API key (required)         |
+| `HF_TOKEN`        | —                                            | Hugging Face API token (fallback)  |
+| `API_KEY`         | —                                            | Alternative API key fallback       |
+| `API_BASE_URL`    | `https://openrouter.ai/api/v1`               | OpenAI-compatible API base URL     |
+| `MODEL_NAME`      | `nvidia/llama-3.3-nemotron-super-49b-v1`     | Model to use for inference         |
+| `ENV_BASE_URL`    | `http://127.0.0.1:7860`                      | Base URL for the FastAPI env server|
 
 ---
 
@@ -300,19 +304,20 @@ Scores are normalized averages across all steps in each task (range: `[0.0, 1.0]
 
 ```
 sre-incident-agent/
-├── app.py                  # FastAPI server — root, /health, /reset endpoints
+├── app.py                  # FastAPI server — /, /health, /reset, /step, /state
 ├── env.py                  # SREIncidentTriageEnv — Gymnasium environment
 ├── incidents.py            # Deterministic incident generator (18 templates)
 ├── grader.py               # Scoring logic — partial credit reward function
 ├── baseline.py             # Heuristic + LLM baseline agents and episode runner
-├── inference.py            # OpenEnv inference script (HF router, Qwen2.5)
+├── inference.py            # OpenEnv inference script (OpenRouter, Llama-3.3)
 ├── openenv.yaml            # OpenEnv benchmark manifest (tasks, config, grader)
 ├── pyproject.toml          # Python project metadata and dependencies
 ├── uv.lock                 # Reproducible dependency lock file
 ├── requirements.txt        # Minimal requirements for Docker builds
 ├── Dockerfile              # Container image for Hugging Face Spaces (port 7860)
 ├── validate-submission.sh  # Pre-submission checker
-├── .gitignore              # Excludes __pycache__, .venv, etc.
+├── .env.example            # Example environment variable configuration
+├── .gitignore              # Excludes __pycache__, .venv, .env, etc.
 └── server/
     └── app.py              # Alternate entry point required by OpenEnv multi-mode spec
 ```
@@ -369,8 +374,8 @@ llm        | 0.xxxx | 0.xxxx | 0.xxxx
 
 ```bash
 export OPENAI_API_KEY="sk-..."        # Required for live LLM agent
-export API_BASE_URL="https://router.huggingface.co/v1"  # Optional override
-export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"           # Optional override
+export API_BASE_URL="https://openrouter.ai/api/v1"       # Optional override
+export MODEL_NAME="nvidia/llama-3.3-nemotron-super-49b-v1"  # Optional override
 python inference.py
 ```
 
@@ -391,6 +396,8 @@ Then visit [`http://localhost:7860/`](http://localhost:7860/) to trigger a live 
 | `GET`  | `/`       | Run heuristic baseline on all tasks and return aggregate scores              |
 | `GET`  | `/health` | Liveness check — returns `{"status": "ok"}`                                  |
 | `POST` | `/reset`  | Instantiate and reset the environment; returns initial observation and state |
+| `POST` | `/step`   | Submit an action (severity, root_cause, action) and advance the environment  |
+| `GET`  | `/state`  | Return the current internal environment state snapshot                       |
 
 ### `GET /` — Response example
 
@@ -420,6 +427,60 @@ Then visit [`http://localhost:7860/`](http://localhost:7860/) to trigger a live 
     "current_score": 0.0
   },
   "info": "{'step_number': 0, 'max_steps': 10, ...}"
+}
+```
+
+### `POST /step` — Request & Response example
+
+**Request body** (JSON — string labels, not integer indices):
+
+```json
+{
+  "severity": "P1",
+  "root_cause": "database",
+  "action": "scale_db"
+}
+```
+
+**Response:**
+
+```json
+{
+  "observation": {
+    "incident_text": "ALERT: Connection pool exhaustion on primary database...",
+    "step_number": 1,
+    "incidents_resolved": 1,
+    "current_score": 0.85
+  },
+  "reward": 0.85,
+  "terminated": false,
+  "truncated": false,
+  "done": false,
+  "info": {
+    "severity_score": 1.0,
+    "root_cause_score": 1.0,
+    "action_score": 1.0,
+    "total_score": 1.0
+  }
+}
+```
+
+### `GET /state` — Response example
+
+```json
+{
+  "state": {
+    "step_number": 1,
+    "max_steps": 10,
+    "difficulty": 1,
+    "seed": 42,
+    "incidents_resolved": 1,
+    "cumulative_reward": 0.85,
+    "average_score": 0.85,
+    "current_incident_text": "ALERT: ...",
+    "last_action": { "severity": "P1", "root_cause": "database", "action": "scale_db" },
+    "last_reward": { "severity_score": 1.0, "root_cause_score": 1.0, "action_score": 1.0, "total_score": 1.0 }
+  }
 }
 ```
 
