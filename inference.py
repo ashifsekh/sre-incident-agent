@@ -27,6 +27,12 @@ API_KEY = os.getenv("OPENAI_API_KEY") or HF_TOKEN or os.getenv("API_KEY")
 
 BENCHMARK = "sre-incident-agent"
 SUCCESS_SCORE_THRESHOLD = 0.5
+OPEN_INTERVAL_EPSILON = 1e-4
+
+
+def _clamp_open_unit_interval(value: float) -> float:
+    """Clamp a score to the strict open interval (0, 1)."""
+    return min(1.0 - OPEN_INTERVAL_EPSILON, max(OPEN_INTERVAL_EPSILON, value))
 
 
 def log_start(task, env, model):
@@ -236,7 +242,7 @@ def run_task(task_name: str, config: Dict[str, int]) -> List[float]:
                 log_step(step, json.dumps({"severity": "P2", "root_cause": "unknown", "action": "monitor"}, separators=(",", ":")), 0.0, done, error)
 
         score = sum(rewards) / max_total_reward if max_total_reward > 0 else 0.0
-        score = min(max(score, 0.0), 1.0)  # clamp to [0, 1]
+        score = round(_clamp_open_unit_interval(score), 4)
         success = score >= SUCCESS_SCORE_THRESHOLD
     finally:
         try:
