@@ -160,7 +160,7 @@ class SREIncidentTriageEnv(gym.Env):
         self._last_action = parsed_action
         self._last_reward = reward_model
 
-        reward = reward_model.total_score
+        reward = max(0.001, min(0.999, reward_model.total_score))
         self._cumulative_reward += reward
 
         if reward >= 0.6:

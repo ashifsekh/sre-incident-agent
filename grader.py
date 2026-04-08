@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 
 
 SEVERITY_ORDER = {"P1": 1, "P2": 2, "P3": 3}
-OPEN_INTERVAL_EPSILON = 1e-4
 
 # Groups categories considered related for partial root-cause credit.
 RELATED_CAUSES: Dict[str, List[str]] = {
@@ -30,9 +29,7 @@ class SREReward(BaseModel):
     total_score: float = Field(ge=0.0, le=1.0)
 
 
-def _clamp_open_unit_interval(value: float) -> float:
-    """Clamp a value to the strict open interval (0, 1)."""
-    return min(1.0 - OPEN_INTERVAL_EPSILON, max(OPEN_INTERVAL_EPSILON, value))
+
 
 
 def _normalize_text(value: str) -> str:
@@ -109,8 +106,13 @@ def score_decision(agent_decision: Dict[str, str], true_answer: Dict[str, object
         true_answer=true_answer,
     )
 
+    # Clamp individual scores to strict (0.001, 0.999)
+    severity = max(0.001, min(0.999, severity))
+    root_cause = max(0.001, min(0.999, root_cause))
+    action = max(0.001, min(0.999, action))
+
     weighted = (severity * 0.3) + (root_cause * 0.4) + (action * 0.3)
-    total = round(_clamp_open_unit_interval(weighted), 4)
+    total = max(0.001, min(0.999, round(weighted, 4)))
 
     return SREReward(
         severity_score=round(severity, 4),
