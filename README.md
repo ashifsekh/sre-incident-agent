@@ -121,7 +121,7 @@ At each step, the agent receives a structured dictionary observation:
 | `incident_text`      | `str`   | Full alert text with injected telemetry signals and noise |
 | `step_number`        | `int`   | Current step index within the episode                     |
 | `incidents_resolved` | `int`   | Count of steps where total reward ≥ 0.6                   |
-| `current_score`      | `float` | Running average reward score in `(0.001, 0.999)`           |
+| `current_score`      | `float` | Running average reward score in `(0.001, 0.999)`          |
 
 **Example observation:**
 
@@ -206,11 +206,11 @@ An incident is considered **resolved** if `total_score ≥ 0.6`.
 
 Three tasks of increasing difficulty are defined in `openenv.yaml`:
 
-| Task ID  | Name   | `max_steps` | `difficulty` | Noise Level                                        |
-| -------- | ------ | ----------- | ------------ | -------------------------------------------------- |
-| `easy`   | Easy   | 10          | 1            | 1 misleading signal per incident                   |
-| `medium` | Medium | 20          | 2            | 2 adversarial misleading signals per incident      |
-| `hard`   | Hard   | 30          | 3            | 3 adversarial misleading signals per incident      |
+| Task ID  | Name   | `max_steps` | `difficulty` | Noise Level                                   |
+| -------- | ------ | ----------- | ------------ | --------------------------------------------- |
+| `easy`   | Easy   | 10          | 1            | 1 misleading signal per incident              |
+| `medium` | Medium | 20          | 2            | 2 adversarial misleading signals per incident |
+| `hard`   | Hard   | 30          | 3            | 3 adversarial misleading signals per incident |
 
 All tasks use `seed=42` for reproducibility. The seed advances deterministically at each step using a hash-based mixing function to prevent incident repetition across long episodes:
 
@@ -218,7 +218,7 @@ All tasks use `seed=42` for reproducibility. The seed advances deterministically
 rng = random.Random((seed * 13 + 97) % 999983)
 ```
 
-**What makes Hard genuinely hard:** At difficulty=3, the injected misleading signals are adversarially chosen from a *different* root cause category than the true one. For example, a `database` incident will have misleading signals containing `deployment` keywords like "rollout" and "manifest". A frontier LLM that naively pattern-matches on keywords will be misled; only models that reason about the primary alert signal vs. secondary telemetry will score well.
+**What makes Hard genuinely hard:** At difficulty=3, the injected misleading signals are adversarially chosen from a _different_ root cause category than the true one. For example, a `database` incident will have misleading signals containing `deployment` keywords like "rollout" and "manifest". A frontier LLM that naively pattern-matches on keywords will be misled; only models that reason about the primary alert signal vs. secondary telemetry will score well.
 
 ---
 
@@ -276,14 +276,14 @@ A benchmark-grade runner that connects to the **OpenRouter API** and uses **nvid
 
 Configurable via environment variables:
 
-| Variable          | Default                                      | Description                        |
-| ----------------- | -------------------------------------------- | ---------------------------------- |
-| `OPENAI_API_KEY`  | —                                            | Primary API key (required)         |
-| `HF_TOKEN`        | —                                            | Hugging Face API token (fallback)  |
-| `API_KEY`         | —                                            | Alternative API key fallback       |
-| `API_BASE_URL`    | `https://openrouter.ai/api/v1`               | OpenAI-compatible API base URL     |
-| `MODEL_NAME`      | `nvidia/llama-3.3-nemotron-super-49b-v1`     | Model to use for inference         |
-| `ENV_BASE_URL`    | `http://127.0.0.1:7860`                      | Base URL for the FastAPI env server|
+| Variable         | Default                                  | Description                         |
+| ---------------- | ---------------------------------------- | ----------------------------------- |
+| `OPENAI_API_KEY` | —                                        | Primary API key (required)          |
+| `HF_TOKEN`       | —                                        | Hugging Face API token (fallback)   |
+| `API_KEY`        | —                                        | Alternative API key fallback        |
+| `API_BASE_URL`   | `https://openrouter.ai/api/v1`           | OpenAI-compatible API base URL      |
+| `MODEL_NAME`     | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model to use for inference          |
+| `ENV_BASE_URL`   | `http://127.0.0.1:7860`                  | Base URL for the FastAPI env server |
 
 ---
 
@@ -480,8 +480,17 @@ Then visit [`http://localhost:7860/`](http://localhost:7860/) to trigger a live 
     "cumulative_reward": 0.85,
     "average_score": 0.85,
     "current_incident_text": "ALERT: ...",
-    "last_action": { "severity": "P1", "root_cause": "database", "action": "scale_db" },
-    "last_reward": { "severity_score": 1.0, "root_cause_score": 1.0, "action_score": 1.0, "total_score": 1.0 }
+    "last_action": {
+      "severity": "P1",
+      "root_cause": "database",
+      "action": "scale_db"
+    },
+    "last_reward": {
+      "severity_score": 1.0,
+      "root_cause_score": 1.0,
+      "action_score": 1.0,
+      "total_score": 1.0
+    }
   }
 }
 ```
